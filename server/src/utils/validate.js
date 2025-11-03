@@ -7,7 +7,7 @@ throw new Error(`${name} must be a non-empty string`);
 
 
 export function requireISODate(name, val) {
-// expects 'YYYY-MM-DD' or ISO string; we keep it forgiving
+// expects 'YYYY-MM-DD' or ISO string
 const d = new Date(val);
 if (Number.isNaN(d.getTime())) {
 throw new Error(`${name} must be a valid date`);

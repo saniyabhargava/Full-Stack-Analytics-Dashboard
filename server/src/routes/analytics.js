@@ -3,6 +3,7 @@ import { Router } from 'express';
 
 // GET /api/analytics/overview?from=YYYY-MM-DD&to=YYYY-MM-DD
 // Returns small set of metrics we can chart easily on the frontend
+
 router.get('/overview', async (req, res) => {
 try {
 const { from, to } = req.query;
@@ -66,6 +67,5 @@ active: active.rows
 res.status(400).json({ error: err.message });
 }
 });
-
 
 export default router;
