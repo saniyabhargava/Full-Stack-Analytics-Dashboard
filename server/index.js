@@ -5,35 +5,52 @@ import dotenv from "dotenv";
 import pkg from "pg";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";   // <-- THIS WAS MISSING
+import { fileURLToPath } from "url";
 
 dotenv.config();
 const { Pool } = pkg;
 
 const app = express();
 
-/* ---------- Middleware ---------- */
+/* -------------------- middleware -------------------- */
 app.use(express.json());
+
+// allow localhost during dev; in production the app is same-origin
 app.use(
   cors({
-    origin: [/^http:\/\/localhost:\d+$/], // allow Vite dev during development
+    origin: [/^http:\/\/localhost:\d+$/],
     credentials: false,
   })
 );
 
-/* ---------- DB ---------- */
+/* -------------------- db -------------------- */
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
-  console.warn(
-    "[warn] DATABASE_URL not set. Create server/.env with DATABASE_URL=postgres://USER:PASS@HOST:PORT/DB"
-  );
+  console.warn("[warn] DATABASE_URL not set");
 }
 const pool = new Pool({ connectionString: DATABASE_URL });
-
-// helper
 const q = async (sql, params) => (await pool.query(sql, params)).rows;
 
-/* ---------- API ---------- */
+/* small helper so bad/pretty values don't 400 */
+const normalizeType = (t) => {
+  if (!t) return undefined;
+  const k = String(t).toLowerCase().trim();
+  const map = {
+    signup: "signup",
+    signups: "signup",
+    click: "click",
+    clicks: "click",
+    purchase: "purchase",
+    purchases: "purchase",
+    "page_view": "page_view",
+    "page-view": "page_view",
+    pageview: "page_view",
+    pageviews: "page_view",
+  };
+  return map[k];
+};
+
+/* -------------------- api -------------------- */
 
 // health
 app.get("/api/health", async (_req, res) => {
@@ -45,17 +62,19 @@ app.get("/api/health", async (_req, res) => {
   }
 });
 
-// insert event
+// create event (used by Demo button)
 app.post("/api/events", async (req, res) => {
   try {
     const { user_id, type, metadata } = req.body || {};
+    const typeNorm = normalizeType(type);
     if (!user_id) throw new Error("user_id required");
-    if (!type) throw new Error("type required");
+    if (!typeNorm) throw new Error("type invalid");
+
     const rows = await q(
       `INSERT INTO events (user_id, type, metadata)
        VALUES ($1,$2,$3)
        RETURNING id, user_id, type, metadata, created_at`,
-      [String(user_id), String(type), metadata || {}]
+      [String(user_id), typeNorm, metadata || {}]
     );
     res.status(201).json(rows[0]);
   } catch (e) {
@@ -66,11 +85,16 @@ app.post("/api/events", async (req, res) => {
 // list events (filters: type, from, to, search)
 app.get("/api/events", async (req, res) => {
   try {
-    const { type, from, to, search } = req.query;
     const vals = [];
     const where = [];
 
-    if (type) { vals.push(type); where.push(`type = $${vals.length}`); }
+    const typeNorm = normalizeType(req.query.type);
+    if (typeNorm) {
+      vals.push(typeNorm);
+      where.push(`type = $${vals.length}`);
+    }
+
+    const { from, to, search } = req.query;
     if (from) { vals.push(from); where.push(`created_at >= $${vals.length}`); }
     if (to)   { vals.push(new Date(new Date(to).getTime() + 86400000)); where.push(`created_at < $${vals.length}`); }
     if (search) { vals.push(`%${search}%`); where.push(`CAST(metadata AS TEXT) ILIKE $${vals.length}`); }
@@ -89,16 +113,14 @@ app.get("/api/events", async (req, res) => {
   }
 });
 
-// overview analytics
+// overview analytics (by day, by type, active users)
 app.get("/api/analytics/overview", async (req, res) => {
   try {
     const { from, to } = req.query;
     const vals = [];
     const where = [];
-
     if (from) { vals.push(from); where.push(`created_at >= $${vals.length}`); }
     if (to)   { vals.push(new Date(new Date(to).getTime() + 86400000)); where.push(`created_at < $${vals.length}`); }
-
     const W = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
     const [byDay, byType, active] = await Promise.all([
@@ -135,29 +157,29 @@ app.get("/api/analytics/overview", async (req, res) => {
   }
 });
 
-/* ---------- Static (serve React build) ---------- */
-// MUST be after API routes and before app.listen
-
+/* -------------------- static (serve React build) -------------------- */
+// must be after API routes and before listen()
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
-
 const CLIENT_DIST = path.resolve(__dirname, "..", "client", "dist");
 const INDEX_HTML  = path.join(CLIENT_DIST, "index.html");
 
 console.log("[static] dir:", CLIENT_DIST, "index exists:", fs.existsSync(INDEX_HTML));
 
-// log requests (helps debug routing)
+// optional: log requests to see routing flow in logs
 app.use((req, _res, next) => { console.log("[hit]", req.method, req.url); next(); });
 
-// 1) static assets
+// static assets first
 app.use(express.static(CLIENT_DIST));
 
-// 2) root
+// root
 app.get("/", (_req, res) => res.sendFile(INDEX_HTML));
 
-// 3) SPA catch-all for any non-API path
+// spa catch-all (serve index for any non-api path)
 app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(INDEX_HTML));
 
-/* ---------- Start ---------- */
+/* -------------------- start -------------------- */
 const PORT = Number(process.env.PORT) || 4000;
 app.listen(PORT, () => console.log(`[server] listening on http://localhost:${PORT}`));
+
+export default app;
