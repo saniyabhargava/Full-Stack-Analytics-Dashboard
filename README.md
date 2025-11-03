@@ -1,5 +1,4 @@
 # Full-Stack Analytics Dashboard  
-Data-Driven Insights for Modern Applications  
 
 A full-stack web analytics platform that visualizes user event data in real time through an interactive dashboard.  
 Developed as part of postgraduate coursework to demonstrate backend integration with PostgreSQL, data visualization using React, and full-stack deployment on Render.
